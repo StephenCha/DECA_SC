@@ -30,6 +30,7 @@ from decalib.utils.config import cfg as deca_cfg
 from decalib.utils.tensor_cropper import transform_points
 
 def main(args):
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.deviceNum
     # if args.rasterizer_type != 'standard':
     #     args.render_orig = False
     savefolder = args.savefolder
@@ -38,25 +39,70 @@ def main(args):
 
     # load test images 
     testdata = datasets.TestData(args.inputpath, iscrop=args.iscrop, face_detector=args.detector)
-
+    # testdata -> {'image': dst_image_list,
+    #             'imagename': imagename,
+    #             'tform': tformList,
+    #             'original_image': torch.tensor(image.transpose(2,0,1)).float(),
+    #             }
+    
     # run DECA
     deca_cfg.model.use_tex = args.useTex
     deca_cfg.rasterizer_type = args.rasterizer_type
     deca = DECA(config = deca_cfg, device=device)
     # for i in range(len(testdata)):
     for i in tqdm(range(len(testdata))):
+        # 'image', 'tform' type : List
+        ##################### Hyunsoo #####################
+        # opdict = {
+        #     'verts': verts,
+        #     'trans_verts': trans_verts,
+        #     'landmarks2d': landmarks2d,
+        #     'landmarks3d': landmarks3d,
+        #     'landmarks3d_world': landmarks3d_world,
+        # }
+        # visdict = {
+        #         'inputs': images, 
+        #         'landmarks2d': util.tensor_vis_landmarks(images, landmarks2d),
+        #         'landmarks3d': util.tensor_vis_landmarks(images, landmarks3d),
+        #         'shape_images': shape_images,
+        #         'shape_detail_images': shape_detail_images
+        # }
+        
+        codedictList = []
         name = testdata[i]['imagename']
-        images = testdata[i]['image'].to(device)[None,...]
+        
+        # Encoder
+        for j in range(len(testdata[i]['image'])):
+            images = testdata[i]['image'][j].to(device)[None,...]
+            with torch.no_grad():
+                codedict = deca.encode(images)
+                codedictList.append(codedict)
+        
+        # Decoder
         with torch.no_grad():
-            codedict = deca.encode(images)
-            opdict, visdict = deca.decode(codedict) #tensor
+            visdictList = deca.multiDecode(codedictList)
+            
             if args.render_orig:
-                tform = testdata[i]['tform'][None, ...]
-                tform = torch.inverse(tform).transpose(1,2).to(device)
-                original_image = testdata[i]['original_image'][None, ...].to(device)
-                _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform)    
-                orig_visdict['inputs'] = original_image            
-
+                tformList = testdata[i]['tform'] # list
+                original_image = testdata[i]['original_image'][None, ...].to(device) # not list
+                orig_visdict = deca.multiDecode(codedictList, render_orig=True, original_image=original_image, tformList=tformList)
+                orig_visdict['inputs'] = original_image 
+        ####################################################
+        
+        ##################### Original #####################
+        # name = testdata[i]['imagename']
+        # images = testdata[i]['image'].to(device)[None,...]
+        # with torch.no_grad():
+        #     codedict = deca.encode(images)
+        #     opdict, visdict = deca.decode(codedict) #tensor
+        #     if args.render_orig:
+        #         tform = testdata[i]['tform'][None, ...]
+        #         tform = torch.inverse(tform).transpose(1,2).to(device)
+        #         original_image = testdata[i]['original_image'][None, ...].to(device)
+        #         _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform)    
+        #         orig_visdict['inputs'] = original_image            
+        #####################################################
+        
         if args.saveDepth or args.saveKpt or args.saveObj or args.saveMat or args.saveImages:
             os.makedirs(os.path.join(savefolder, name), exist_ok=True)
         # -- save results
@@ -77,14 +123,26 @@ def main(args):
             if args.render_orig:
                 cv2.imwrite(os.path.join(savefolder, name + '_vis_original_size.jpg'), deca.visualize(orig_visdict))
         if args.saveImages:
-            for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d']:
-                if vis_name not in visdict.keys():
-                    continue
-                image = util.tensor2image(visdict[vis_name][0])
-                cv2.imwrite(os.path.join(savefolder, name, name + '_' + vis_name +'.jpg'), util.tensor2image(visdict[vis_name][0]))
-                if args.render_orig:
+            if args.render_orig:
+                for vis_name in ['inputs', 'shape_images', 'shape_detail_images', 'landmarks2d']:
                     image = util.tensor2image(orig_visdict[vis_name][0])
-                    cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name +'.jpg'), util.tensor2image(orig_visdict[vis_name][0]))
+                    cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name + str(j) +'.jpg'), util.tensor2image(orig_visdict[vis_name][0]))
+            
+            for j in range(len(visdictList)):
+                for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d']:
+                    if vis_name not in visdictList[j].keys():
+                        continue
+                    image = util.tensor2image(visdictList[j][vis_name][0])
+                    cv2.imwrite(os.path.join(savefolder, name, name + '_' + vis_name + str(j) + '.jpg'), util.tensor2image(visdictList[j][vis_name][0]))
+                    
+            # for vis_name in ['inputs', 'rendered_images', 'albedo_images', 'shape_images', 'shape_detail_images', 'landmarks2d']:
+            #     if vis_name not in visdict.keys():
+            #         continue
+            #     image = util.tensor2image(visdict[vis_name][0])
+            #     cv2.imwrite(os.path.join(savefolder, name, name + '_' + vis_name +'.jpg'), util.tensor2image(visdict[vis_name][0]))
+            #     if args.render_orig:
+            #         image = util.tensor2image(orig_visdict[vis_name][0])
+            #         cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name +'.jpg'), util.tensor2image(orig_visdict[vis_name][0]))
     print(f'-- please check the results in {savefolder}')
         
 if __name__ == '__main__':
@@ -102,7 +160,7 @@ if __name__ == '__main__':
     parser.add_argument('--detector', default='fan', type=str,
                         help='detector for cropping face, check decalib/detectors.py for details' )
     # rendering option
-    parser.add_argument('--rasterizer_type', default='standard', type=str,
+    parser.add_argument('--rasterizer_type', default='pytorch3d', type=str,
                         help='rasterizer type: pytorch3d or standard' )
     parser.add_argument('--render_orig', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to render results in original image size, currently only works when rasterizer_type=standard')
@@ -110,7 +168,7 @@ if __name__ == '__main__':
     parser.add_argument('--useTex', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to use FLAME texture model to generate uv texture map, \
                             set it to True only if you downloaded texture model' )
-    parser.add_argument('--saveVis', default=True, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--saveVis', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save visualization of output' )
     parser.add_argument('--saveKpt', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save 2D and 3D keypoints' )
@@ -121,6 +179,8 @@ if __name__ == '__main__':
                             Note that saving objs could be slow' )
     parser.add_argument('--saveMat', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save outputs as .mat' )
-    parser.add_argument('--saveImages', default=False, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--saveImages', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save visualization output as seperate images' )
+    parser.add_argument('--deviceNum', default='2', type=str,
+                        help='Configure the GPU number' )
     main(parser.parse_args())

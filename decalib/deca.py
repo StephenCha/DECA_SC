@@ -49,6 +49,7 @@ class DECA(nn.Module):
         self._create_model(self.cfg.model)
         self._setup_renderer(self.cfg.model)
 
+    # SECOND
     def _setup_renderer(self, model_cfg):
         set_rasterizer(self.cfg.rasterizer_type)
         self.render = SRenderY(self.image_size, obj_filename=model_cfg.topology_path, uv_size=model_cfg.uv_size, rasterizer_type=self.cfg.rasterizer_type).to(self.device)
@@ -66,11 +67,13 @@ class DECA(nn.Module):
         # dense mesh template, for save detail mesh
         self.dense_template = np.load(model_cfg.dense_template_path, allow_pickle=True, encoding='latin1').item()
 
+    # FIRST
     def _create_model(self, model_cfg):
         # set up parameters
+        # shape, tex, expression, pose, camera, albedo parameters
         self.n_param = model_cfg.n_shape+model_cfg.n_tex+model_cfg.n_exp+model_cfg.n_pose+model_cfg.n_cam+model_cfg.n_light
         self.n_detail = model_cfg.n_detail
-        self.n_cond = model_cfg.n_exp + 3 # exp + jaw pose
+        self.n_cond = model_cfg.n_exp + 3 # exp + jaw pose. MAYBE I guess these were from FLAME
         self.num_list = [model_cfg.n_shape, model_cfg.n_tex, model_cfg.n_exp, model_cfg.n_pose, model_cfg.n_cam, model_cfg.n_light]
         self.param_dict = {i:model_cfg.get('n_' + i) for i in model_cfg.param_list}
 
@@ -84,6 +87,7 @@ class DECA(nn.Module):
         self.D_detail = Generator(latent_dim=self.n_detail+self.n_cond, out_channels=1, out_scale=model_cfg.max_z, sample_mode = 'bilinear').to(self.device)
         # resume model
         model_path = self.cfg.pretrained_modelpath
+        # Determine whether there are pretrained models.
         if os.path.exists(model_path):
             print(f'trained model found. load {model_path}')
             checkpoint = torch.load(model_path)
@@ -156,14 +160,85 @@ class DECA(nn.Module):
             codedict['euler_jaw_pose'] = euler_jaw_pose  
         return codedict
 
+    def multiDecode(self, codedictList, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
+                render_orig=False, original_image=None, tformList=None):
+        
+        # images = codedictList[0]['images']
+        # images2d, _, _, _, _ = self.decode(codedictList[0], rendering, iddict, vis_lmk, return_vis, use_detail, render_orig, original_image, tform, singleMode=True)
+        # images3d = images2d.clone()
+        
+        visdictList = []
+        import copy
+        images = original_image
+        images2d = copy.deepcopy(original_image)
+        images3d = copy.deepcopy(original_image)
+        
+        if render_orig:
+            for i in range(len(codedictList)):
+                codedict = codedictList[i]
+            
+                tform = tformList[i][None, ...]
+                tform = torch.inverse(tform).transpose(1, 2).to(original_image.device)
+                
+                if i == 0:
+                    images, landmarks2d, landmarks3d, shape_images, shape_detail_images = self.decode(
+                        codedict, rendering, iddict, vis_lmk, return_vis, use_detail, render_orig, original_image=images, tform=tform, singleMode=True
+                        )
+                else:
+                    images, landmarks2d, landmarks3d, _, _ = self.decode(
+                        codedict, rendering, iddict, vis_lmk, return_vis, use_detail, render_orig, original_image=images, tform=tform, singleMode=True
+                        )
+                
+                images2d = util.tensor_vis_landmarks(images2d, landmarks2d)
+                images3d = util.tensor_vis_landmarks(images3d, landmarks3d)
+                images2d = images2d.to('cuda')
+                images3d = images3d.to('cuda')
+                
+                images, landmarks2d, landmarks3d, _, shape_detail_images = self.decode(
+                    codedict, rendering, iddict, vis_lmk, return_vis, use_detail, render_orig, original_image=shape_detail_images, tform=tform, singleMode=True
+                    )
+                images, landmarks2d, landmarks3d, shape_images, _ = self.decode(
+                    codedict, rendering, iddict, vis_lmk, return_vis, use_detail, render_orig, original_image=shape_images, tform=tform, singleMode=True
+                    )
+                
+            visdict = {
+                    'inputs': original_image, 
+                    'landmarks2d': images2d, # visualize landmark
+                    'landmarks3d': images3d,
+                    'shape_images': shape_images,
+                    'shape_detail_images': shape_detail_images
+                }
+                
+            return visdict
+        else:
+            for i in range(len(codedictList)):
+                codedict = codedictList[i]
+                images, landmarks2d, landmarks3d, shape_images, shape_detail_images = self.decode(
+                    codedict, rendering, iddict, vis_lmk, return_vis, use_detail, render_orig, original_image, tform=None, singleMode=True
+                    )
+                imagesLmk2d = util.tensor_vis_landmarks(images, landmarks2d)
+                imagesLmk3d = util.tensor_vis_landmarks(images, landmarks3d)
+                
+                visdict = {
+                        'inputs': images, 
+                        'landmarks2d': imagesLmk2d, # visualize landmark
+                        'landmarks3d': imagesLmk3d,
+                        'shape_images': shape_images,
+                        'shape_detail_images': shape_detail_images
+                    }
+                visdictList.append(visdict)
+                
+            return visdictList
+        
     # @torch.no_grad()
     def decode(self, codedict, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
-                render_orig=False, original_image=None, tform=None):
+                render_orig=False, original_image=None, tform=None, singleMode=False):
         images = codedict['images']
         batch_size = images.shape[0]
         
         ## decode
         verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
+        
         if self.cfg.model.use_tex:
             albedo = self.flametex(codedict['tex'])
         else:
@@ -171,9 +246,15 @@ class DECA(nn.Module):
         landmarks3d_world = landmarks3d.clone()
 
         ## projection
-        landmarks2d = util.batch_orth_proj(landmarks2d, codedict['cam'])[:,:,:2]; landmarks2d[:,:,1:] = -landmarks2d[:,:,1:]#; landmarks2d = landmarks2d*self.image_size/2 + self.image_size/2
-        landmarks3d = util.batch_orth_proj(landmarks3d, codedict['cam']); landmarks3d[:,:,1:] = -landmarks3d[:,:,1:] #; landmarks3d = landmarks3d*self.image_size/2 + self.image_size/2
-        trans_verts = util.batch_orth_proj(verts, codedict['cam']); trans_verts[:,:,1:] = -trans_verts[:,:,1:]
+        landmarks2d = util.batch_orth_proj(landmarks2d, codedict['cam'])[:,:,:2]
+        landmarks2d[:,:,1:] = -landmarks2d[:,:,1:]#; landmarks2d = landmarks2d*self.image_size/2 + self.image_size/2
+        
+        landmarks3d = util.batch_orth_proj(landmarks3d, codedict['cam'])
+        landmarks3d[:,:,1:] = -landmarks3d[:,:,1:] #; landmarks3d = landmarks3d*self.image_size/2 + self.image_size/2
+        
+        trans_verts = util.batch_orth_proj(verts, codedict['cam'])
+        trans_verts[:,:,1:] = -trans_verts[:,:,1:]
+        
         opdict = {
             'verts': verts,
             'trans_verts': trans_verts,
@@ -243,7 +324,7 @@ class DECA(nn.Module):
             opdict['uv_texture_gt'] = uv_texture_gt
             visdict = {
                 'inputs': images, 
-                'landmarks2d': util.tensor_vis_landmarks(images, landmarks2d),
+                'landmarks2d': util.tensor_vis_landmarks(images, landmarks2d), # visualize landmark
                 'landmarks3d': util.tensor_vis_landmarks(images, landmarks3d),
                 'shape_images': shape_images,
                 'shape_detail_images': shape_detail_images
@@ -251,6 +332,9 @@ class DECA(nn.Module):
             if self.cfg.model.use_tex:
                 visdict['rendered_images'] = ops['images']
 
+            if singleMode:
+                return images, landmarks2d, landmarks3d, shape_images, shape_detail_images
+            
             return opdict, visdict
 
         else:
@@ -296,7 +380,7 @@ class DECA(nn.Module):
         # upsample mesh, save detailed mesh
         texture = texture[:,:,[2,1,0]]
         normals = opdict['normals'][i].cpu().numpy()
-        displacement_map = opdict['displacement_map'][i].cpu().numpy().squeeze()
+        displacement_map = opdict['displacement_map'][i].cpu().detach().numpy().squeeze()
         dense_vertices, dense_colors, dense_faces = util.upsample_mesh(vertices, normals, faces, displacement_map, texture, self.dense_template)
         util.write_obj(filename.replace('.obj', '_detail.obj'), 
                         dense_vertices, 

@@ -1,3 +1,11 @@
+*.mp4
+3D_Reconstruction_Output/
+TestSamples/
+video/
+video_output/
+logs/
+
+
 # Compiled source #
 ###################
 *.o

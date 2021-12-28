@@ -106,22 +106,28 @@ class FLAME(nn.Module):
                 The contour face indexes and the corresponding barycentric weights
         """
 
-        batch_size = pose.shape[0]
-
+        batch_size = pose.shape[0] # take batch size
+        
+        # torch.index_select : select torch tensors with indexs
         aa_pose = torch.index_select(pose.view(batch_size, -1, 3), 1,
                                      neck_kin_chain)
         rot_mats = batch_rodrigues(
             aa_pose.view(-1, 3), dtype=dtype).view(batch_size, -1, 3, 3)
 
+        # torch.eye : diagonal elements are 1 and others are 0.
         rel_rot_mat = torch.eye(3, device=pose.device,
                                 dtype=dtype).unsqueeze_(dim=0).expand(batch_size, -1, -1)
+        
+        # torch.bmm : (b * n * m) bmm (b * m * p) = (b * n * p)
         for idx in range(len(neck_kin_chain)):
             rel_rot_mat = torch.bmm(rot_mats[:, idx], rel_rot_mat)
 
+        # input rounded to the closest integer.
+        # clamp : input has lower and upper bound min and max
         y_rot_angle = torch.round(
             torch.clamp(rot_mat_to_euler(rel_rot_mat) * 180.0 / np.pi,
                         max=39)).to(dtype=torch.long)
-
+        
         neg_mask = y_rot_angle.lt(0).to(dtype=torch.long)
         mask = y_rot_angle.lt(-39).to(dtype=torch.long)
         neg_vals = mask * 78 + (1 - mask) * (39 - y_rot_angle)
@@ -189,14 +195,16 @@ class FLAME(nn.Module):
             eye_pose_params = self.eye_pose.expand(batch_size, -1)
         betas = torch.cat([shape_params, expression_params], dim=1)
         full_pose = torch.cat([pose_params[:, :3], self.neck_pose.expand(batch_size, -1), pose_params[:, 3:], eye_pose_params], dim=1)
+        # print(full_pose.shape) # torch.Size([1, 15])
         template_vertices = self.v_template.unsqueeze(0).expand(batch_size, -1, -1)
 
         vertices, _ = lbs(betas, full_pose, template_vertices,
                           self.shapedirs, self.posedirs,
                           self.J_regressor, self.parents,
                           self.lbs_weights, dtype=self.dtype)
-
+        # print(vertices.shape) # torch.Size([1, 5023, 3])
         lmk_faces_idx = self.lmk_faces_idx.unsqueeze(dim=0).expand(batch_size, -1)
+        # print(lmk_faces_idx.shape) # torch.Size([1, 51])
         lmk_bary_coords = self.lmk_bary_coords.unsqueeze(dim=0).expand(batch_size, -1, -1)
         
         dyn_lmk_faces_idx, dyn_lmk_bary_coords = self._find_dynamic_lmk_idx_and_bcoords(
@@ -213,6 +221,9 @@ class FLAME(nn.Module):
         landmarks3d = vertices2landmarks(vertices, self.faces_tensor,
                                        self.full_lmk_faces_idx.repeat(bz, 1),
                                        self.full_lmk_bary_coords.repeat(bz, 1, 1))
+        # print(landmarks2d.shape) # torch.Size([1, 68, 3])
+        # print(landmarks3d.shape) # torch.Size([1, 68, 3])
+        # print(vertices.shape) # torch.Size([1, 5023, 3])
         return vertices, landmarks2d, landmarks3d
 
 class FLAMETex(nn.Module):

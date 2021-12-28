@@ -96,7 +96,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DECA: Detailed Expression Capture and Animation')
 
-    parser.add_argument('-i', '--image_path', default='TestSamples/examples/IMG_0392_inputs.jpg', type=str,
+    parser.add_argument('-i', '--image_path', default='TestSamples/examples', type=str,
                         help='path to input image')
     parser.add_argument('-e', '--exp_path', default='TestSamples/exp/7.jpg', type=str, 
                         help='path to expression')
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='cuda', type=str,
                         help='set device, cpu for using cpu' )
     # rendering option
-    parser.add_argument('--rasterizer_type', default='standard', type=str,
+    parser.add_argument('--rasterizer_type', default='pytorch3d', type=str,
                         help='rasterizer type: pytorch3d or standard' )
     # process test images
     parser.add_argument('--iscrop', default=True, type=lambda x: x.lower() in ['true', '1'],
@@ -120,9 +120,9 @@ if __name__ == '__main__':
                         help='whether to save visualization of output' )
     parser.add_argument('--saveKpt', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save 2D and 3D keypoints' )
-    parser.add_argument('--saveDepth', default=False, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--saveDepth', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save depth image' )
-    parser.add_argument('--saveObj', default=False, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--saveObj', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save outputs as .obj' )
     parser.add_argument('--saveMat', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save outputs as .mat' )

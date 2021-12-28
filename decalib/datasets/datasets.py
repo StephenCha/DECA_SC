@@ -116,28 +116,86 @@ class TestData(Dataset):
                 top = np.min(kpt[:,1]); bottom = np.max(kpt[:,1])
                 old_size, center = self.bbox2point(left, right, top, bottom, type='kpt68')
             else:
-                bbox, bbox_type = self.face_detector.run(image)
-                if len(bbox) < 4:
+                
+                bboxList, bbox_type = self.face_detector.run(image)
+                
+                ##################### Hyunsoo #####################
+                src_pts_list = []
+                
+                if len(bboxList[0]) < 4:
                     print('no face detected! run original image')
                     left = 0; right = h-1; top=0; bottom=w-1
+                    old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)
+                    
+                    size = int(old_size*self.scale)
+                    # Source Points
+                    src_pts = np.array([[center[0]-size/2, center[1]-size/2], [center[0] - size/2, center[1]+size/2], [center[0]+size/2, center[1]-size/2]])
+                    src_pts_list.append(src_pts)
                 else:
-                    left = bbox[0]; right=bbox[2]
-                    top = bbox[1]; bottom=bbox[3]
-                old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)
-            size = int(old_size*self.scale)
-            src_pts = np.array([[center[0]-size/2, center[1]-size/2], [center[0] - size/2, center[1]+size/2], [center[0]+size/2, center[1]-size/2]])
+                    for i in range(len(bboxList)):
+                        bbox = bboxList[i]
+                        
+                        left = bbox[0]
+                        right = bbox[2]
+                        top = bbox[1]
+                        bottom = bbox[3]
+                        
+                        old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)
+                        size = int(old_size*self.scale)
+                        # Source Points
+                        src_pts = np.array([[center[0]-size/2, center[1]-size/2], [center[0] - size/2, center[1]+size/2], [center[0]+size/2, center[1]-size/2]])
+                        src_pts_list.append(src_pts)
+                        
+                #################### Original Code #################### 
+                # if len(bbox) < 4:
+                #     print('no face detected! run original image')
+                #     left = 0; right = h-1; top=0; bottom=w-1
+                # else:
+                #     left = bbox[0]; right=bbox[2]
+                #     top = bbox[1]; bottom=bbox[3]
+                # old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)
+            # size = int(old_size*self.scale)
+            # src_pts = np.array([[center[0]-size/2, center[1]-size/2], [center[0] - size/2, center[1]+size/2], [center[0]+size/2, center[1]-size/2]])
         else:
             src_pts = np.array([[0, 0], [0, h-1], [w-1, 0]])
-        
-        DST_PTS = np.array([[0,0], [0,self.resolution_inp - 1], [self.resolution_inp - 1, 0]])
-        tform = estimate_transform('similarity', src_pts, DST_PTS)
-        
-        image = image/255.
 
-        dst_image = warp(image, tform.inverse, output_shape=(self.resolution_inp, self.resolution_inp))
-        dst_image = dst_image.transpose(2,0,1)
-        return {'image': torch.tensor(dst_image).float(),
+        ##################### Hyunsoo #####################
+        image = image/255.
+        dst_image_list, tformList = [], []
+        
+        # Destination Points
+        DST_PTS = np.array([[0,0], [0,self.resolution_inp - 1], [self.resolution_inp - 1, 0]]) # resolution inp == Crop Size
+        for i in range(len(src_pts_list)):
+            tform = estimate_transform('similarity', src_pts_list[i], DST_PTS)
+            dst_image = warp(image, tform.inverse, output_shape=(self.resolution_inp, self.resolution_inp))
+            
+            tform = torch.tensor(tform.params).float()
+            tformList.append(tform)
+            
+            dst_image = dst_image.transpose(2,0,1)
+            dst_image = torch.tensor(dst_image).float()
+            dst_image_list.append(dst_image)
+        
+        ##################### Original #####################
+        # DST_PTS = np.array([[0,0], [0,self.resolution_inp - 1], [self.resolution_inp - 1, 0]])
+        # tform = estimate_transform('similarity', src_pts, DST_PTS)
+        
+        # image = image/255.
+
+        # dst_image = warp(image, tform.inverse, output_shape=(self.resolution_inp, self.resolution_inp))
+        # dst_image = dst_image.transpose(2,0,1)
+        #####################################################
+        
+        return {'image': dst_image_list,
                 'imagename': imagename,
-                'tform': torch.tensor(tform.params).float(),
+                'tform': tformList,
                 'original_image': torch.tensor(image.transpose(2,0,1)).float(),
                 }
+        
+        ##################### Original #####################
+        # return {'image': torch.tensor(dst_image).float(), # dst_image_list,
+        #         'imagename': imagename,
+        #         'tform': torch.tensor(tform.params).float(), # tformList
+        #         'original_image': torch.tensor(image.transpose(2,0,1)).float(),
+        #         }
+        #####################################################

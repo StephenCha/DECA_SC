@@ -18,6 +18,7 @@ import torch
 
 class FAN(object):
     def __init__(self):
+        # https://github.com/1adrianb/face-alignment
         import face_alignment
         self.model = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
 
@@ -30,11 +31,22 @@ class FAN(object):
         if out is None:
             return [0], 'kpt68'
         else:
-            kpt = out[0].squeeze()
-            left = np.min(kpt[:,0]); right = np.max(kpt[:,0]); 
-            top = np.min(kpt[:,1]); bottom = np.max(kpt[:,1])
-            bbox = [left,top, right, bottom]
-            return bbox, 'kpt68'
+            ################ Hyunsoo ################ 
+            bboxList = []
+            for i in range(len(out)):
+                kpt = out[i].squeeze()
+                left = np.min(kpt[:,0]); right = np.max(kpt[:,0]); 
+                top = np.min(kpt[:,1]); bottom = np.max(kpt[:,1])
+                bbox = [left,top, right, bottom]
+                bboxList.append(bbox)
+            return bboxList, 'kpt68'
+            
+            ################ Original ################ 
+            # kpt = out[0].squeeze()
+            # left = np.min(kpt[:,0]); right = np.max(kpt[:,0]); 
+            # top = np.min(kpt[:,1]); bottom = np.max(kpt[:,1])
+            # bbox = [left, top, right, bottom]
+            # return bbox, 'kpt68'
 
 class MTCNN(object):
     def __init__(self, device = 'cpu'):

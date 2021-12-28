@@ -31,6 +31,7 @@ from decalib.utils.rotation_converter import batch_euler2axis, deg2rad
 from decalib.utils.config import cfg as deca_cfg
 
 def main(args):
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.deviceNum
     savefolder = args.savefolder
     device = args.device
     os.makedirs(savefolder, exist_ok=True)
@@ -121,12 +122,13 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='cuda', type=str,
                         help='set device, cpu for using cpu' )
     # rendering option
-    parser.add_argument('--rasterizer_type', default='standard', type=str,
+    parser.add_argument('--rasterizer_type', default='pytorch3d', type=str,
                         help='rasterizer type: pytorch3d or standard' )
     # process test images
     parser.add_argument('--iscrop', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to crop input image, set false only when the test image are well cropped' )
     parser.add_argument('--detector', default='fan', type=str,
                         help='detector for cropping face, check detectos.py for details' )
-
+    parser.add_argument('--deviceNum', default='2', type=str,
+                        help='Configure the GPU number' )
     main(parser.parse_args())
