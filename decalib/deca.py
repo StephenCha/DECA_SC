@@ -359,6 +359,49 @@ class DECA(nn.Module):
         grid_image = np.minimum(np.maximum(grid_image, 0), 255).astype(np.uint8)
         return grid_image
     
+    def convert_deca_to_bbox(self, data3D, scale, trans, bAppTransFirst=False):
+        hmrIntputSize_half = 224 *0.5
+
+        if bAppTransFirst:      #Hand model
+            data3D[:,0:2] += trans
+            data3D *= scale           #apply scaling
+        else:
+            # data3D *= scale           #apply scaling
+            # data3D[:,0:2] += trans
+            data3D = np.multiply(data3D, scale.cpu().numpy())
+            data3D[:, 0:2] = np.add(data3D[:, 0:2], trans.cpu().numpy())
+        
+        #data3D *= hmrIntputSize_half         #112 is originated from hrm's input size (224,24)
+        data3D = np.multiply(data3D, hmrIntputSize_half)
+
+        return data3D
+
+    def viewer(self, codedict, opdict):
+        from renderer import glViewer
+        i = 0
+        vertices = opdict['verts'][i].cpu().numpy()
+        faces = self.render.faces[0].cpu().numpy()
+        normals = opdict['normals'][i].cpu().numpy()
+        displacement_map = opdict['displacement_map'][i].cpu().numpy().squeeze()
+        texture = util.tensor2image(opdict['uv_texture_gt'][i])
+        texture = texture[:,:,[2,1,0]]
+        dense_vertices, dense_colors, dense_faces = util.upsample_mesh(vertices, normals, faces, displacement_map, texture, self.dense_template)
+        
+        pred_camera_vis = codedict['cam']
+        camParam_scale = pred_camera_vis[i,0]
+        camParam_trans = pred_camera_vis[i,1:]
+
+        ############### Visualize Mesh ############### 
+        print(dense_vertices.shape)
+        pred_vert_vis = self.convert_deca_to_bbox(data3D=dense_vertices, scale=camParam_scale, trans=camParam_trans, bAppTransFirst=False)
+        
+        pred_meshes = {'ver': pred_vert_vis, 'f': dense_faces}
+        glViewer.setMeshData([pred_meshes], bComputeNormal = True)
+
+        glViewer.SetOrthoCamera(True)
+        print("Press 'q' in the 3D window to go to the next sample")
+        glViewer.show(0)
+        
     def save_obj(self, filename, opdict):
         '''
         vertices: [nv, 3], tensor

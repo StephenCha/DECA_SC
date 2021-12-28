@@ -53,20 +53,6 @@ def main(args):
     for i in tqdm(range(len(testdata))):
         # 'image', 'tform' type : List
         ##################### Hyunsoo #####################
-        # opdict = {
-        #     'verts': verts,
-        #     'trans_verts': trans_verts,
-        #     'landmarks2d': landmarks2d,
-        #     'landmarks3d': landmarks3d,
-        #     'landmarks3d_world': landmarks3d_world,
-        # }
-        # visdict = {
-        #         'inputs': images, 
-        #         'landmarks2d': util.tensor_vis_landmarks(images, landmarks2d),
-        #         'landmarks3d': util.tensor_vis_landmarks(images, landmarks3d),
-        #         'shape_images': shape_images,
-        #         'shape_detail_images': shape_detail_images
-        # }
         
         codedictList = []
         name = testdata[i]['imagename']
@@ -143,6 +129,7 @@ def main(args):
             #     if args.render_orig:
             #         image = util.tensor2image(orig_visdict[vis_name][0])
             #         cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name +'.jpg'), util.tensor2image(orig_visdict[vis_name][0]))
+            
     print(f'-- please check the results in {savefolder}')
         
 if __name__ == '__main__':
